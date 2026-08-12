@@ -16,7 +16,7 @@ header: ["run_id", "chan_id", "spacecraft", "num_anoms", "anomaly_sequences", "c
         "normalized_error", "eval_time", "scores"]
 
 # determines window size used in EWMA smoothing (percentage of total values for channel)
-smoothing_perc: 0.05
+smoothing_perc: 0.03
 
 # number of values surrounding an error that are brought into the sequence (promotes grouping on nearby sequences
 error_buffer: 100
@@ -50,4 +50,4 @@ n_predictions: 10
 # ==================================
 
 # minimum percent decrease between max errors in anomalous sequences (used for pruning)
-p: 0.13
+p: 0.08
