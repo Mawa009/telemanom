@@ -10,12 +10,14 @@ per-sensor .npy files expected by telemanom's channel.py, with preprocessing:
 - Z-score normalization (mean 0, std 1) per sensor, using mean/std
   computed from TRAIN data only -- applied to both train and test to
   avoid leaking test statistics into the pipeline
+- Use --skip-normalization if data is already preprocessed (e.g. NASA
+  SMAP/MSL .npy data converted to CSV)
 
 File-boundary indices are tracked (post-cleaning) so windows never cross
 between two source files. Files are concatenated in filename sort order.
 
 Usage:
-    python prepare_data.py
+    python prepare_data.py [--skip-normalization]
 """
 import numpy as np
 import pandas as pd
@@ -53,7 +55,8 @@ def _load_and_clean_chunk(f, sensor_cols, train):
 
 
 def convert_folder(input_folder, output_folder, sensor_cols=None,
-                    clip_bounds=None, norm_stats=None, train=True):
+                    clip_bounds=None, norm_stats=None, train=True,
+                    skip_normalization=False):
     os.makedirs(output_folder, exist_ok=True)
 
     csv_files = sorted(glob.glob(os.path.join(input_folder, "*.csv")))
@@ -75,29 +78,34 @@ def convert_folder(input_folder, output_folder, sensor_cols=None,
         boundaries.append(running_total)
     boundaries = np.array(boundaries[:-1])
 
-    # compute clip bounds / norm stats from TRAIN data only
-    if train:
-        clip_bounds = {}
+    if skip_normalization:
+        print(f"{input_folder}: skipping outlier clipping + normalization "
+              f"(data assumed already preprocessed)")
+        clip_bounds = clip_bounds or {col: None for col in sensor_cols}
+        norm_stats = norm_stats or {col: None for col in sensor_cols}
+    else:
+        if train:
+            clip_bounds = {}
+            for col in sensor_cols:
+                arr = np.concatenate(combined[col])
+                lo, hi = np.percentile(arr, [LOWER_PCT, UPPER_PCT])
+                clip_bounds[col] = (float(lo), float(hi))
+
         for col in sensor_cols:
-            arr = np.concatenate(combined[col])
-            lo, hi = np.percentile(arr, [LOWER_PCT, UPPER_PCT])
-            clip_bounds[col] = (float(lo), float(hi))
+            combined[col] = [np.clip(a, *clip_bounds[col]) for a in combined[col]]
 
-    for col in sensor_cols:
-        combined[col] = [np.clip(a, *clip_bounds[col]) for a in combined[col]]
+        if train:
+            norm_stats = {}
+            for col in sensor_cols:
+                arr = np.concatenate(combined[col])
+                mean, std = float(arr.mean()), float(arr.std())
+                if std == 0:
+                    std = 1.0
+                norm_stats[col] = (mean, std)
 
-    if train:
-        norm_stats = {}
         for col in sensor_cols:
-            arr = np.concatenate(combined[col])
-            mean, std = float(arr.mean()), float(arr.std())
-            if std == 0:
-                std = 1.0  # avoid divide-by-zero for constant sensors
-            norm_stats[col] = (mean, std)
-
-    for col in sensor_cols:
-        mean, std = norm_stats[col]
-        combined[col] = [(a - mean) / std for a in combined[col]]
+            mean, std = norm_stats[col]
+            combined[col] = [(a - mean) / std for a in combined[col]]
 
     for col in sensor_cols:
         arr = np.concatenate(combined[col]).reshape(-1, 1)
@@ -112,13 +120,20 @@ def convert_folder(input_folder, output_folder, sensor_cols=None,
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-normalization", action="store_true")
+    args = parser.parse_args()
+
     sensor_cols, clip_bounds, norm_stats = convert_folder(
-        "train", "data/train", train=True)
+        "train", "data/train", train=True,
+        skip_normalization=args.skip_normalization)
 
     convert_folder("test", "data/test", sensor_cols=sensor_cols,
                     clip_bounds=clip_bounds, norm_stats=norm_stats,
-                    train=False)
+                    train=False, skip_normalization=args.skip_normalization)
 
     with open("data/preprocessing_stats.json", "w") as f:
-        json.dump({"clip_bounds": clip_bounds, "norm_stats": norm_stats}, f, indent=2)
-    print("Saved preprocessing_stats.json (clip bounds + normalization stats)")
+        json.dump({"clip_bounds": clip_bounds, "norm_stats": norm_stats,
+                   "skip_normalization": args.skip_normalization}, f, indent=2)
+    print("Saved preprocessing_stats.json")
