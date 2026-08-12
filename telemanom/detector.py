@@ -70,7 +70,7 @@ class Detector:
         self.result_path = result_path
 
         if self.labels_path:
-            self.chan_df = pd.read_csv(labels_path)
+            self.chan_df = pd.read_csv(labels_path, dtype={'chan_id': str})
         else:
             chan_ids = [x.split('.')[0] for x in os.listdir('data/test/')]
             self.chan_df = pd.DataFrame({"chan_id": chan_ids})
