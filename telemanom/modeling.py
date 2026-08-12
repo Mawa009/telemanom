@@ -1,7 +1,7 @@
-from keras.models import Sequential, load_model
-from keras.callbacks import History, EarlyStopping, Callback
-from keras.layers.recurrent import LSTM
-from keras.layers.core import Dense, Activation, Dropout
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.callbacks import History, EarlyStopping, Callback
+from tensorflow.keras.layers import LSTM
+from tensorflow.keras.layers import Dense, Activation, Dropout
 import numpy as np
 import os
 import logging
@@ -39,7 +39,7 @@ class Model:
 
         if not self.config.train:
             try:
-                self.load()
+                self.load(channel)
             except FileNotFoundError:
                 path = os.path.join('data', self.config.use_id, 'models',
                                     self.chan_id + '.h5')
@@ -51,14 +51,33 @@ class Model:
             self.train_new(channel)
             self.save()
 
-    def load(self):
+    def load(self, channel):
         """
-        Load model for channel.
+        Load model for channel by rebuilding the architecture and loading
+        only the saved weights (bypasses legacy Keras compile-config
+        deserialization issues across Keras versions -- load_model()
+        crashes on some Keras versions trying to restore the old training
+        config, e.g. "Could not deserialize 'keras.metrics.mse'").
         """
 
         logger.info('Loading pre-trained model')
-        self.model = load_model(os.path.join('data', self.config.use_id,
+        self.model = Sequential()
+        self.model.add(LSTM(
+            self.config.layers[0],
+            input_shape=(None, channel.X_train.shape[2]),
+            return_sequences=True))
+        self.model.add(Dropout(self.config.dropout))
+        self.model.add(LSTM(
+            self.config.layers[1],
+            return_sequences=False))
+        self.model.add(Dropout(self.config.dropout))
+        self.model.add(Dense(
+            self.config.n_predictions))
+        self.model.add(Activation('linear'))
+        self.model.load_weights(os.path.join('data', self.config.use_id,
                                              'models', self.chan_id + '.h5'))
+        self.model.compile(loss=self.config.loss_metric,
+                           optimizer=self.config.optimizer)
 
     def train_new(self, channel):
         """
