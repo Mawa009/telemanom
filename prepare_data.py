@@ -10,14 +10,12 @@ per-sensor .npy files expected by telemanom's channel.py, with preprocessing:
 - Z-score normalization (mean 0, std 1) per sensor, using mean/std
   computed from TRAIN data only -- applied to both train and test to
   avoid leaking test statistics into the pipeline
-- Use --skip-normalization if data is already preprocessed (e.g. NASA
-  SMAP/MSL .npy data converted to CSV)
 
 File-boundary indices are tracked (post-cleaning) so windows never cross
 between two source files. Files are concatenated in filename sort order.
 
 Usage:
-    python prepare_data.py [--skip-normalization]
+    python prepare_data.py
 """
 import numpy as np
 import pandas as pd
@@ -37,13 +35,9 @@ def _load_and_clean_chunk(f, sensor_cols, train):
         df = df.dropna()
         n_nan = before - len(df)
 
-        before = len(df)
-        df = df.drop_duplicates()
-        n_dup = before - len(df)
-
-        if n_nan or n_dup:
-            print(f"  {os.path.basename(f)}: dropped {n_nan} NaN row(s), "
-                  f"{n_dup} duplicate row(s)")
+        if n_nan:
+            print(f"  {os.path.basename(f)}: dropped {n_nan} NaN row(s) "
+                  f"(duplicates kept)")
     else:
         n_before_nan = df.isna().sum().sum()
         if n_before_nan:
@@ -84,6 +78,7 @@ def convert_folder(input_folder, output_folder, sensor_cols=None,
         clip_bounds = clip_bounds or {col: None for col in sensor_cols}
         norm_stats = norm_stats or {col: None for col in sensor_cols}
     else:
+        # compute clip bounds / norm stats from TRAIN data only
         if train:
             clip_bounds = {}
             for col in sensor_cols:
@@ -100,7 +95,7 @@ def convert_folder(input_folder, output_folder, sensor_cols=None,
                 arr = np.concatenate(combined[col])
                 mean, std = float(arr.mean()), float(arr.std())
                 if std == 0:
-                    std = 1.0
+                    std = 1.0  # avoid divide-by-zero for constant sensors
                 norm_stats[col] = (mean, std)
 
         for col in sensor_cols:
@@ -122,7 +117,10 @@ def convert_folder(input_folder, output_folder, sensor_cols=None,
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--skip-normalization", action="store_true")
+    parser.add_argument("--skip-normalization", action="store_true",
+                        help="Skip outlier clipping + z-score normalization "
+                             "(use when input data is already preprocessed, "
+                             "e.g. NASA SMAP/MSL .npy data converted to CSV)")
     args = parser.parse_args()
 
     sensor_cols, clip_bounds, norm_stats = convert_folder(
