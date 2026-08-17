@@ -28,7 +28,7 @@ from telemanom.helpers import Config
 from telemanom.channel import Channel
 from telemanom.errors import Errors
 
-from system_confusion_matrix import mask_to_sequences, sequence_level_metrics
+from system_confusion_matrix1 import mask_to_sequences, sequence_level_metrics
 
 
 def _load_gt_mask(test_folder, labels_folder):
